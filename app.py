@@ -1,10 +1,15 @@
 import streamlit as st
-import os
-from pathlib import Path
-import PyPDF2
+from pypdf import PdfReader
 from pptx import Presentation
-import requests
-import json
+import dashscope
+import os
+
+# ==========================
+# 获取 API Key（Streamlit Secrets）
+# ==========================
+# 在 Streamlit Cloud: Settings → Secrets
+# 添加一行：DASHSCOPE_API_KEY=你的通义千问API_KEY
+dashscope.api_key = os.environ.get("DASHSCOPE_API_KEY")
 
 # 页面配置
 st.set_page_config(
@@ -52,205 +57,81 @@ uploaded_file = st.file_uploader(
     help="支持 PDF 和 PowerPoint 格式"
 )
 
-# 提取 PDF 文本
-def extract_pdf_text(file):
-    try:
-        pdf_reader = PyPDF2.PdfReader(file)
-        text = ""
-        for page in pdf_reader.pages:
-            text += page.extract_text() + "\n"
-        return text
-    except Exception as e:
-        st.error(f"PDF 读取失败: {str(e)}")
-        return None
+# ==========================
+# 读取 PDF
+# ==========================
+def read_pdf(file):
+    reader = PdfReader(file)
+    text = ""
+    for page in reader.pages:
+        text += page.extract_text() or ""
+    return text
 
-# 提取 PPT 文本
-def extract_ppt_text(file):
-    try:
-        # 保存临时文件
-        temp_path = f"temp_{uploaded_file.name}"
-        with open(temp_path, "wb") as f:
-            f.write(file.getbuffer())
-        
-        # 读取PPT
-        prs = Presentation(temp_path)
-        text = ""
-        for slide in prs.slides:
-            for shape in slide.shapes:
-                if hasattr(shape, "text"):
-                    text += shape.text + "\n"
-        
-        # 删除临时文件
-        os.remove(temp_path)
-        return text
-    except Exception as e:
-        st.error(f"PPT 读取失败: {str(e)}")
-        return None
+# ==========================
+# 读取 PPT
+# ==========================
+def read_ppt(file):
+    prs = Presentation(file)
+    text = ""
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if hasattr(shape, "text"):
+                text += shape.text + "\n"
+    return text
 
-# 调用通义千问API分析 - 使用原生 HTTP 请求
-def analyze_with_qwen(text, api_key):
-    try:
-        # 构建提示词
-        prompt = f"""你是一位资深的风险投资分析师。请对以下商业计划书进行全面、专业的分析。
+# ==========================
+# 点击分析按钮
+# ==========================
+if uploaded_file:
+    # 判断文件类型
+    if uploaded_file.name.endswith(".pdf"):
+        bp_text = read_pdf(uploaded_file)
+    else:
+        bp_text = read_ppt(uploaded_file)
+
+    st.success("文件读取成功！")
+
+    if st.button("开始分析"):
+        # ==========================
+        # Prompt 模板
+        # ==========================
+        prompt = f"""
+你是一个项目评价助手。
+
+请严格分析以下商业计划书，并按模块输出分析结果：
+- 产品技术
+- 市场
+- 行业竞争情况
+- 核心团队构成
+- 财务指标
+- 公司架构合规情况
+- 融资规模及资金用途
+
+禁止输出融资建议或融资规模建议。
 
 商业计划书内容：
-{text}
+{bp_text}
+"""
 
-请从以下维度进行深入分析：
-
-1. **执行摘要**
-   - 核心商业模式概述
-   - 关键亮点总结
-
-2. **市场分析**
-   - 目标市场规模与增长潜力
-   - 竞争格局分析
-   - 市场机会与威胁
-
-3. **产品/服务评估**
-   - 产品独特性与创新点
-   - 技术壁垒
-   - 用户价值主张
-
-4. **商业模式**
-   - 收入模式清晰度
-   - 成本结构合理性
-   - 盈利能力预测
-
-5. **团队评估**
-   - 核心团队背景
-   - 团队完整性
-   - 执行能力
-
-6. **财务分析**
-   - 收入预测合理性
-   - 资金需求与使用计划
-   - 财务健康度
-
-7. **风险评估**
-   - 主要风险因素
-   - 风险应对措施
-
-8. **投资建议**
-   - 综合评分 (1-10分)
-   - 投资价值判断
-   - 关键建议
-
-请用专业、客观的语言撰写分析报告，每个部分都要有具体的论据支持。"""
-
-        # API 端点
-        url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-        
-        # 请求头
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
-        
-        # 请求体
-        data = {
-            "model": "qwen-plus",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "你是一位经验丰富的风险投资分析师，擅长评估商业计划书。"
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            "temperature": 0.7,
-            "max_tokens": 4000
-        }
-        
-        # 发送请求
-        response = requests.post(url, headers=headers, json=data, timeout=120)
-        
-        # 检查响应
-        if response.status_code == 200:
-            result = response.json()
-            return result['choices'][0]['message']['content']
-        else:
-            error_msg = f"API 请求失败 (状态码: {response.status_code})"
+        # ==========================
+        # 调用通义千问
+        # ==========================
+        with st.spinner("分析中...请稍等"):
             try:
-                error_detail = response.json()
-                error_msg += f"\n详细信息: {error_detail}"
-            except:
-                error_msg += f"\n响应内容: {response.text}"
-            st.error(error_msg)
-            return None
-    
-    except requests.exceptions.Timeout:
-        st.error("API 调用超时，请重试")
-        return None
-    except Exception as e:
-        st.error(f"API 调用失败: {str(e)}")
-        return None
+                response = dashscope.Generation.call(
+                    model="qwen-max",
+                    prompt=prompt
+                )
+                result = response.output.text
+            except Exception as e:
+                st.error(f"分析失败: {e}")
+                result = ""
 
-# 显示文件信息
-if uploaded_file is not None:
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.info(f"📄 **文件名**: {uploaded_file.name}")
-        st.info(f"📦 **文件大小**: {uploaded_file.size / 1024:.2f} KB")
-        st.info(f"📝 **文件类型**: {uploaded_file.type}")
-    
-    with col2:
-        st.success("✅ 文件上传成功！")
-        st.markdown("点击下方按钮开始分析")
-
-    # 分析按钮
-    st.markdown("---")
-    if st.button("🚀 开始分析", type="primary", use_container_width=True):
-        
-        # 检查API Key
-        if not api_key:
-            st.error("⚠️ 请先在侧边栏输入通义千问 API Key")
-        else:
-            # 显示进度
-            with st.spinner("正在提取文件内容..."):
-                # 根据文件类型提取文本
-                if uploaded_file.type == "application/pdf":
-                    text = extract_pdf_text(uploaded_file)
-                else:  # PPT
-                    text = extract_ppt_text(uploaded_file)
-                
-                if text:
-                    st.success("✅ 文件内容提取成功")
-                    
-                    # 显示提取的文本预览
-                    with st.expander("📝 查看提取的文本内容（前500字）"):
-                        st.text(text[:500] + "..." if len(text) > 500 else text)
-            
-            # 调用AI分析
-            if text:
-                with st.spinner("🤖 AI 正在分析中，请稍候...（可能需要30-60秒）"):
-                    analysis = analyze_with_qwen(text, api_key)
-                
-                if analysis:
-                    st.success("✅ 分析完成！")
-                    st.markdown("---")
-                    st.header("📊 分析报告")
-                    st.markdown(analysis)
-                    
-                    # 提供下载选项
-                    st.markdown("---")
-                    st.download_button(
-                        label="📥 下载分析报告",
-                        data=analysis,
-                        file_name=f"分析报告_{uploaded_file.name}.txt",
-                        mime="text/plain"
-                    )
-else:
-    # 未上传文件时的提示
-    st.info("👆 请在上方上传商业计划书文件")
-
-# 页脚
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: gray; padding: 20px;'>
-    <p>商业计划书 AI 分析助手 | Powered by 通义千问 & Streamlit</p>
-    <p>⚠️ 本工具仅供参考，投资决策请结合多方面信息综合判断</p>
+        # ==========================
+        # 显示分析结果
+        # ==========================
+        if result:
+            st.subheader("分析结果")
+            st.write(result)
 </div>
 """, unsafe_allow_html=True)
