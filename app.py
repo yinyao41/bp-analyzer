@@ -89,7 +89,7 @@ def extract_ppt_text(file):
 # 调用通义千问API分析
 def analyze_with_qwen(text, api_key):
     try:
-        # 初始化客户端
+        # 初始化客户端 - 修复：不传入任何额外参数
         client = OpenAI(
             api_key=api_key,
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -226,3 +226,4 @@ st.markdown("""
     <p>⚠️ 本工具仅供参考，投资决策请结合多方面信息综合判断</p>
 </div>
 """, unsafe_allow_html=True)
+
