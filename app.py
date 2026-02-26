@@ -3,7 +3,8 @@ import os
 from pathlib import Path
 import PyPDF2
 from pptx import Presentation
-from openai import OpenAI
+import requests
+import json
 
 # 页面配置
 st.set_page_config(
@@ -86,15 +87,9 @@ def extract_ppt_text(file):
         st.error(f"PPT 读取失败: {str(e)}")
         return None
 
-# 调用通义千问API分析
+# 调用通义千问API分析 - 使用原生 HTTP 请求
 def analyze_with_qwen(text, api_key):
     try:
-        # 初始化客户端 - 修复：不传入任何额外参数
-        client = OpenAI(
-            api_key=api_key,
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
-        )
-        
         # 构建提示词
         prompt = f"""你是一位资深的风险投资分析师。请对以下商业计划书进行全面、专业的分析。
 
@@ -143,19 +138,52 @@ def analyze_with_qwen(text, api_key):
 
 请用专业、客观的语言撰写分析报告，每个部分都要有具体的论据支持。"""
 
-        # 调用API
-        response = client.chat.completions.create(
-            model="qwen-plus",  # 或使用 "qwen-turbo", "qwen-max"
-            messages=[
-                {"role": "system", "content": "你是一位经验丰富的风险投资分析师，擅长评估商业计划书。"},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=4000
-        )
+        # API 端点
+        url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
         
-        return response.choices[0].message.content
+        # 请求头
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+        
+        # 请求体
+        data = {
+            "model": "qwen-plus",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "你是一位经验丰富的风险投资分析师，擅长评估商业计划书。"
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.7,
+            "max_tokens": 4000
+        }
+        
+        # 发送请求
+        response = requests.post(url, headers=headers, json=data, timeout=120)
+        
+        # 检查响应
+        if response.status_code == 200:
+            result = response.json()
+            return result['choices'][0]['message']['content']
+        else:
+            error_msg = f"API 请求失败 (状态码: {response.status_code})"
+            try:
+                error_detail = response.json()
+                error_msg += f"\n详细信息: {error_detail}"
+            except:
+                error_msg += f"\n响应内容: {response.text}"
+            st.error(error_msg)
+            return None
     
+    except requests.exceptions.Timeout:
+        st.error("API 调用超时，请重试")
+        return None
     except Exception as e:
         st.error(f"API 调用失败: {str(e)}")
         return None
@@ -197,7 +225,7 @@ if uploaded_file is not None:
             
             # 调用AI分析
             if text:
-                with st.spinner("🤖 AI 正在分析中，请稍候..."):
+                with st.spinner("🤖 AI 正在分析中，请稍候...（可能需要30-60秒）"):
                     analysis = analyze_with_qwen(text, api_key)
                 
                 if analysis:
@@ -226,4 +254,3 @@ st.markdown("""
     <p>⚠️ 本工具仅供参考，投资决策请结合多方面信息综合判断</p>
 </div>
 """, unsafe_allow_html=True)
-
