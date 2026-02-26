@@ -11,50 +11,20 @@ import os
 # 添加一行：DASHSCOPE_API_KEY=你的通义千问API_KEY
 dashscope.api_key = os.environ.get("DASHSCOPE_API_KEY")
 
-# 页面配置
-st.set_page_config(
-    page_title="商业计划书AI分析助手",
-    page_icon="📊",
-    layout="wide"
+# ==========================
+# Streamlit 页面设置
+# ==========================
+st.set_page_config(page_title="商业计划书智能分析", layout="wide")
+st.title("商业计划书智能分析系统")
+st.markdown(
+    "上传你的商业计划书（PDF 或 PPT），系统会生成项目分析报告。"
 )
 
-# 标题和说明
-st.title("📊 商业计划书 AI 分析助手")
-st.markdown("---")
-st.markdown("""
-### 使用说明
-1. 在左侧上传您的商业计划书（支持 PDF 或 PPT 格式）
-2. 点击"开始分析"按钮
-3. 等待 AI 生成专业的分析报告
-
-**注意**: 首次使用需要在侧边栏输入通义千问 API Key
-""")
-
-# 侧边栏 - API Key 输入
-with st.sidebar:
-    st.header("⚙️ 配置")
-    api_key = st.text_input(
-        "通义千问 API Key",
-        type="password",
-        help="请输入您的通义千问 API Key。获取地址: https://dashscope.aliyun.com/"
-    )
-    
-    st.markdown("---")
-    st.markdown("""
-    ### 如何获取 API Key？
-    1. 访问 [通义千问控制台](https://dashscope.aliyun.com/)
-    2. 登录/注册阿里云账号
-    3. 进入 API-KEY 管理页面
-    4. 创建新的 API Key
-    5. 复制并粘贴到上方输入框
-    """)
-
-# 主界面 - 文件上传
-st.header("📁 上传商业计划书")
+# ==========================
+# 上传文件
+# ==========================
 uploaded_file = st.file_uploader(
-    "选择文件",
-    type=['pdf', 'ppt', 'pptx'],
-    help="支持 PDF 和 PowerPoint 格式"
+    "上传商业计划书（PDF 或 PPT）", type=["pdf", "pptx"], help="建议文件不超过20MB"
 )
 
 # ==========================
@@ -133,5 +103,3 @@ if uploaded_file:
         if result:
             st.subheader("分析结果")
             st.write(result)
-</div>
-""", unsafe_allow_html=True)
